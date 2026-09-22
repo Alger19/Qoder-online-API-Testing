@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>本地 Agent 对话</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1b2129;
+    --panel-3: #202832;
+    --line: #262d38;
+    --text: #e6e9ef;
+    --muted: #8b95a5;
+    --accent: #6c8cff;
+    --accent-soft: rgba(108,140,255,.14);
+    --user: #24406e;
+    --err: #ff6b6b;
+    --ok: #3fd08a;
+    --warn: #ffc857;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 20px; background: var(--panel);
+    border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(63,208,138,.7); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(255,200,87,.7); }
+  .dot.bad { background: var(--err); box-shadow: 0 0 8px rgba(255,107,107,.7); }
+  .spacer { flex: 1; }
+  .meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .badge {
+    font-size: 11.5px; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 20px; padding: 3px 10px; white-space: nowrap;
+  }
+  .badge b { color: var(--text); font-weight: 600; }
+  select.sel {
+    font: inherit; font-size: 12.5px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px;
+    max-width: 190px; outline: none;
+  }
+  select.sel:focus { border-color: var(--accent); }
+  button {
+    font: inherit; font-size: 13px; cursor: pointer;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 13px; transition: background .15s, border-color .15s;
+  }
+  button:hover:not(:disabled) { background: #232b36; border-color: #33404f; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary {
+    background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 650;
+  }
+  button.primary:hover:not(:disabled) { background: #7f9bff; border-color: #7f9bff; }
+  button.tiny { padding: 3px 9px; font-size: 11.5px; border-radius: 6px; }
+  button.danger { color: #ffb3b3; border-color: rgba(255,107,107,.35); }
+  button.danger:hover:not(:disabled) { background: rgba(255,107,107,.12); border-color: rgba(255,107,107,.6); }
+
+  /* ------------------------------- connect gate ------------------------------ */
+  #gate {
+    flex: 1; display: flex; align-items: center; justify-content: center; padding: 28px 20px;
+    overflow-y: auto;
+  }
+  .card {
+    width: 100%; max-width: 480px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 26px 26px 22px;
+  }
+  .card h2 { margin: 0 0 6px; font-size: 18px; font-weight: 650; }
+  .card p.sub { margin: 0 0 20px; font-size: 13px; color: var(--muted); }
+  label.field { display: block; font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
+  .group { margin-bottom: 16px; }
+  .inputwrap { position: relative; display: flex; gap: 8px; }
+  input[type=password], input[type=text], select.region, textarea {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 13px; font: inherit; font-size: 14px; outline: none;
+  }
+  textarea { resize: vertical; line-height: 1.55; }
+  input[type=password] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .5px; }
+  input[type=password]:focus, input[type=text]:focus, select.region:focus,
+  textarea:focus, select.mini:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  #reveal { flex: none; padding: 11px 12px; border-radius: 10px; font-size: 12.5px; }
+  #connect {
+    width: 100%; background: var(--accent); border-color: var(--accent); color: #0b1020;
+    font-weight: 650; padding: 12px; border-radius: 10px; font-size: 14px;
+  }
+  #connect:hover:not(:disabled) { background: #7f9bff; border-color: #7f9bff; }
+  .row2 { display: flex; gap: 10px; align-items: center; }
+  .row2 .group { flex: 1; margin-bottom: 16px; }
+  .check { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .check input { margin: 3px 0 0; accent-color: var(--accent); }
+  #gateerr {
+    margin: 0 0 16px; padding: 10px 12px; border-radius: 9px; font-size: 13px;
+    background: rgba(255,107,107,.1); border: 1px solid rgba(255,107,107,.4); color: #ffc9c9;
+    white-space: pre-wrap;
+  }
+  .notes { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--line); }
+  .notes li { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .notes ul { margin: 0; padding-left: 17px; }
+  .notes a { color: var(--accent); text-decoration: none; }
+  .notes a:hover { text-decoration: underline; }
+  .spin-inline {
+    display: inline-block; width: 11px; height: 11px; border-radius: 50%;
+    border: 2px solid rgba(11,16,32,.35); border-top-color: #0b1020;
+    animation: spin .7s linear infinite; vertical-align: -1px; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------------------------------- chat ---------------------------------- */
+  #chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #log {
+    flex: 1; overflow-y: auto; padding: 24px 20px 8px;
+    display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth;
+  }
+  .row { display: flex; gap: 12px; max-width: 860px; width: 100%; margin: 0 auto; }
+  .row.me { flex-direction: row-reverse; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 8px; flex: none;
+    display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff;
+  }
+  .row.bot .avatar { background: linear-gradient(140deg, #6c8cff, #9d6cff); }
+  .row.me .avatar { background: #35507f; }
+  .bubble {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 15px; max-width: calc(100% - 50px);
+    overflow-wrap: anywhere; white-space: pre-wrap;
+  }
+  .row.me .bubble { background: var(--user); border-color: #2f5183; }
+  .bubble.err { background: rgba(255,107,107,.1); border-color: rgba(255,107,107,.4); color: #ffc9c9; }
+  .bubble.warn { background: rgba(255,200,87,.08); border-color: rgba(255,200,87,.4); color: #ffe3a3; }
+  .bubble code {
+    background: #0b0e13; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .bubble pre {
+    background: #0b0e13; border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px 13px; margin: 9px 0; overflow-x: auto; white-space: pre;
+  }
+  .bubble pre code { background: none; border: none; padding: 0; }
+  .bubble strong { color: #fff; font-weight: 650; }
+
+  /* Files the agent produced this turn */
+  .files-h { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .file {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 11px; margin-bottom: 7px;
+  }
+  .file:last-child { margin-bottom: 0; }
+  .fname { flex: 1; min-width: 0; font-size: 13px; word-break: break-all; }
+  .fmeta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .dl {
+    flex: none; font-size: 12px; text-decoration: none; color: var(--accent);
+    border: 1px solid rgba(108,140,255,.45); background: var(--accent-soft);
+    border-radius: 7px; padding: 4px 11px;
+  }
+  .dl:hover { background: rgba(108,140,255,.24); }
+
+  #status {
+    max-width: 860px; width: 100%; margin: 0 auto; padding: 0 4px;
+    font-size: 12.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px; min-height: 19px;
+  }
+  .spin {
+    width: 11px; height: 11px; flex: none; border-radius: 50%;
+    border: 2px solid rgba(108,140,255,.28); border-top-color: var(--accent);
+    animation: spin .7s linear infinite;
+  }
+  #status.err { color: #ffb3b3; }
+  #status.warn { color: var(--warn); }
+
+  footer { flex: none; border-top: 1px solid var(--line); background: var(--panel); padding: 14px 20px 16px; }
+  .composer { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  #q {
+    flex: 1; resize: none; min-height: 46px; max-height: 190px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; font: inherit; outline: none;
+  }
+  #q:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #q:disabled { opacity: .55; }
+  #send {
+    background: var(--accent); border-color: var(--accent); color: #0b1020;
+    font-weight: 650; padding: 12px 20px; border-radius: 10px;
+  }
+  #send:hover:not(:disabled) { background: #7f9bff; border-color: #7f9bff; }
+  #stop { padding: 12px 16px; border-radius: 10px; }
+  #file { padding: 12px 14px; border-radius: 10px; background: var(--panel-2); }
+  #file:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .hint { max-width: 860px; margin: 8px auto 0; font-size: 11.5px; color: var(--muted); }
+
+  /* Attachments waiting to be sent */
+  #attach { max-width: 860px; margin: 0 auto 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: flex; align-items: center; gap: 8px; max-width: 100%;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 9px; font-size: 12px;
+  }
+  .chip .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .cs { color: var(--muted); flex: none; }
+  .chip .cx { flex: none; cursor: pointer; color: var(--muted); padding: 0 2px; }
+  .chip .cx:hover { color: var(--err); }
+  .chip.bad { border-color: rgba(255,107,107,.45); color: #ffc9c9; }
+  .chip.busy { opacity: .6; }
+  .saved-to { color: var(--muted); font-size: 12px; margin-top: 7px; }
+  .saved-to code { background: #0b0e13; border-radius: 4px; padding: 1px 5px; }
+  .drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .sent-files { margin-top: 7px; font-size: 12px; opacity: .8; }
+  .empty { color: var(--muted); text-align: center; margin-top: 8vh; font-size: 13.5px; }
+  .empty b { color: var(--text); font-weight: 600; display: block; margin-bottom: 6px; font-size: 15px; }
+  .empty button { margin-top: 14px; }
+
+  /* --------------------------------- setup --------------------------------- */
+  #setup {
+    position: fixed; inset: 0; background: rgba(6,9,13,.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 34px 20px; overflow-y: auto; z-index: 40;
+  }
+  .sheet {
+    width: 100%; max-width: 980px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px 24px;
+  }
+  .sheet-head { display: flex; align-items: flex-start; gap: 14px; }
+  .sheet-head h2 { margin: 0 0 4px; font-size: 17px; font-weight: 650; }
+  .sheet-head p.sub { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .sheet-head .spacer { flex: 1; }
+  .tabs { display: flex; gap: 8px; margin: 18px 0 16px; border-bottom: 1px solid var(--line); }
+  .tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 8px 4px; margin-bottom: -1px;
+    color: var(--muted); font-size: 13.5px;
+  }
+  .tab:hover:not(:disabled) { background: none; color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .cols { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+  .col { flex: 1; min-width: 300px; }
+  .col h3 { margin: 0 0 14px; font-size: 13.5px; font-weight: 650; color: var(--text); }
+  .col h3 .count { color: var(--muted); font-weight: 400; }
+  .two { display: flex; gap: 10px; }
+  .two .group { flex: 1; }
+  select.mini {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font: inherit; font-size: 13.5px; outline: none;
+  }
+  .group .meta { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+  .tools { display: flex; flex-wrap: wrap; gap: 7px; }
+  .tool {
+    display: flex; align-items: center; gap: 6px; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--text);
+  }
+  .tool input { accent-color: var(--accent); margin: 0; }
+  .tool span.t { color: var(--muted); font-size: 11px; }
+  .acts { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+  .note .acts { margin-top: 10px; }
+  .note {
+    margin: 0 0 14px; padding: 9px 12px; border-radius: 9px; font-size: 12.5px;
+    background: var(--accent-soft); border: 1px solid rgba(108,140,255,.35); color: #c9d6ff;
+    white-space: pre-wrap;
+  }
+  .note.bad { background: rgba(255,107,107,.1); border-color: rgba(255,107,107,.4); color: #ffc9c9; }
+  .note.good { background: rgba(63,208,138,.1); border-color: rgba(63,208,138,.4); color: #b6f0d1; }
+  .note.warn { background: rgba(255,200,87,.1); border-color: rgba(255,200,87,.4); color: #ffe3a3; }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .item.on { border-color: var(--accent); background: rgba(108,140,255,.08); }
+  .item .grow { flex: 1; min-width: 0; }
+  .item .nm { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .ds { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .acts { margin: 0; flex: none; }
+  .emptyList {
+    font-size: 12.5px; color: var(--muted); padding: 14px 12px;
+    border: 1px dashed var(--line); border-radius: 10px; text-align: center;
+  }
+  .kv { font-size: 11.5px; color: var(--muted); }
+  code.k {
+    background: #0b0e13; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>本地 Agent 对话</h1>
+  <span class="badge" id="tokBadge" hidden></span>
+  <span class="spacer"></span>
+  <select class="sel" id="agentSel" hidden title="选择 Agent"></select>
+  <select class="sel" id="envSel" hidden title="选择运行环境"></select>
+  <span class="meta" id="meta"></span>
+  <button id="setupBtn" hidden>配置</button>
+  <button id="new" hidden>新会话</button>
+  <button id="disconnect" hidden>断开</button>
+</header>
+
+<!-- ------------------------------ connect gate ------------------------------ -->
+<div id="gate">
+  <div class="card">
+    <h2>填入你的个人访问令牌</h2>
+    <p class="sub">令牌只发往本机服务（127.0.0.1），用于访问 Qoder Cloud Agents API。页面本身不会保存它。</p>
+
+    <div id="gateerr" hidden></div>
+
+    <div class="row2">
+      <div class="group">
+        <label class="field" for="pat">个人访问令牌（PAT）</label>
+        <div class="inputwrap">
+          <input id="pat" type="password" placeholder="pt-…" autocomplete="off" spellcheck="false" />
+          <button id="reveal" type="button">显示</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="group">
+        <label class="field" for="region">服务区域</label>
+        <select class="region" id="region"></select>
+      </div>
+    </div>
+
+    <div class="group">
+      <label class="check">
+        <input type="checkbox" id="remember" />
+        <span>记住这台机器（写入本机 <code>.token</code> 文件，仅本人可读；下次启动自动连接）</span>
+      </label>
+    </div>
+
+    <button id="connect">连接</button>
+
+    <div class="notes">
+      <ul>
+        <li>令牌需要以 <code>pt-</code> 开头，在 Qoder 控制台的 <b>设置 → 个人访问令牌</b> 创建。</li>
+        <li>令牌与区域绑定：中国站令牌填到国际站会被判为无效。</li>
+        <li>连上以后如果账号里还没有 Agent 或运行环境，页面会直接引导你创建。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ---------------------------------- chat ---------------------------------- -->
+<div id="chat" hidden>
+  <div id="log">
+    <div class="empty" id="empty">
+      <b id="emptyTitle">已连接</b>
+      <span id="emptyText">在下面输入你的问题，按 Enter 发送（Shift + Enter 换行）。</span>
+      <div><button id="emptySetup" hidden>打开配置</button></div>
+    </div>
+  </div>
+  <div id="status"></div>
+  <footer>
+    <div id="attach" hidden></div>
+    <div class="composer">
+      <textarea id="q" rows="1" placeholder="问点什么…"></textarea>
+      <button id="file" title="添加附件：图片可直接给 Agent 看，文本文件会把内容一起发过去">附件</button>
+      <button id="send">发送</button>
+      <button id="stop" hidden>停止</button>
+    </div>
+    <div class="hint" id="hint"></div>
+  </footer>
+  <input type="file" id="picker" multiple hidden />
+</div>
+
+<!-- ---------------------------------- setup --------------------------------- -->
+<div id="setup" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <h2>创建 Agent 与运行环境</h2>
+        <p class="sub">这些资源会创建在你的 Qoder 账号下，会计入你的用量，也可以随时在这里删掉。</p>
+      </div>
+      <span class="spacer"></span>
+      <button id="setupClose">关闭</button>
+    </div>
+
+    <div id="setupNote" class="note" hidden></div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabAgent">Agent</button>
+      <button class="tab" id="tabEnv">运行环境</button>
+    </div>
+
+    <!-- ------------------------------- Agent ------------------------------- -->
+    <div class="pane" id="paneAgent">
+      <div class="cols">
+        <div class="col">
+          <h3>新建 Agent</h3>
+
+          <div class="group">
+            <label class="field" for="agName">名称</label>
+            <input id="agName" type="text" placeholder="my-agent" autocomplete="off" />
+          </div>
+
+          <div class="group">
+            <label class="field" for="agDesc">描述（可选）</label>
+            <input id="agDesc" type="text" placeholder="这个 Agent 是干什么的" autocomplete="off" />
+          </div>
+
+          <div class="group">
+            <label class="field" for="agSystem">系统提示词</label>
+            <textarea id="agSystem" rows="4" placeholder="你是一个通用助手…"></textarea>
+          </div>
+
+          <div class="group">
+            <label class="field" for="agModel">模型</label>
+            <select class="mini" id="agModel"></select>
+            <div class="meta" id="agModelMeta"></div>
+          </div>
+
+          <div class="two">
+            <div class="group" id="agEffortWrap">
+              <label class="field" for="agEffort">推理档位</label>
+              <select class="mini" id="agEffort"></select>
+            </div>
+            <div class="group" id="agCtxWrap">
+              <label class="field" for="agCtx">上下文窗口</label>
+              <select class="mini" id="agCtx"></select>
+            </div>
+          </div>
+
+          <div class="group">
+            <label class="field">启用的工具 <span id="agToolCount"></span></label>
+            <div class="tools" id="agTools"></div>
+          </div>
+
+          <div id="agNotice" class="note" hidden></div>
+
+          <div class="acts">
+            <button id="agCreate" class="primary">创建 Agent</button>
+            <button id="agPreset">按文档默认值填入</button>
+            <button id="agAll" class="tiny">全选 / 全不选</button>
+          </div>
+        </div>
+
+        <div class="col">
+          <h3>已有 Agent <span class="count" id="agCount"></span></h3>
+          <div class="list" id="agList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ----------------------------- Environment --------------------------- -->
+    <div class="pane" id="paneEnv" hidden>
+      <div class="cols">
+        <div class="col">
+          <h3>新建运行环境</h3>
+
+          <div class="group">
+            <label class="field" for="envName">名称</label>
+            <input id="envName" type="text" placeholder="agent testing" autocomplete="off" />
+          </div>
+
+          <div class="group">
+            <label class="field" for="envNet">网络策略</label>
+            <select class="mini" id="envNet"></select>
+            <div class="meta" id="envNetMeta"></div>
+          </div>
+
+          <div class="group" id="envHostsWrap" hidden>
+            <label class="field" for="envHosts">允许的主机（每行一个）</label>
+            <textarea id="envHosts" rows="4" placeholder="api.example.com&#10;*.github.com"></textarea>
+          </div>
+
+          <div id="envNotice" class="note" hidden></div>
+
+          <div class="acts">
+            <button id="envCreate" class="primary">创建运行环境</button>
+            <button id="envPreset">按文档默认值填入</button>
+          </div>
+        </div>
+
+        <div class="col">
+          <h3>已有运行环境 <span class="count" id="envCount"></span></h3>
+          <div class="list" id="envList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * This page talks to one local service and understands one small event
+ * vocabulary: ready / note / delta / error / done.
+ * It contains no token, no session id, no upstream URL.
+ *
+ * The PAT the user types is forwarded to the local service and never
+ * stored in the page: not echoed back, not persisted anywhere by this file.
+ * (sessionStorage holds only a random conversation id, never the token.)
+ * ------------------------------------------------------------------ */
+
+// Overridable with ?api=… so the same file can be pointed at another port.
+const API = new URLSearchParams(location.search).get('api')
+  || (location.protocol === 'file:' ? 'http://127.0.0.1:8787' : '');
+
+// One place that knows how a service path is built. Every request goes through
+// it, so a call site can never quietly end up one prefix short.
+const apiPath = (p) => API + p;
+
+// The page's own ceiling. It starts above the service's default and is then
+// re-derived from the service's reported idleTimeoutMs, so raising the service
+// timeout raises this too — the service's precise reason always arrives first,
+// while a fully hung service still cannot hold the page open.
+let clientCeilingMs = 150000;
+const CLIENT_MARGIN_MS = 20000;
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log'), emptyEl = $('empty'), qEl = $('q');
+const sendBtn = $('send'), stopBtn = $('stop'), statusEl = $('status');
+const dotEl = $('dot'), metaEl = $('meta'), gateEl = $('gate'), chatEl = $('chat');
+const gateErr = $('gateerr'), patEl = $('pat'), regionEl = $('region');
+const rememberEl = $('remember'), connectBtn = $('connect'), revealBtn = $('reveal');
+const agentSel = $('agentSel'), envSel = $('envSel'), setupBtn = $('setupBtn');
+const tokBadge = $('tokBadge'), newBtn = $('new'), disconnectBtn = $('disconnect');
+const setupEl = $('setup'), setupNote = $('setupNote');
+
+let regions = [{ id: 'cn', label: '中国站' }, { id: 'global', label: '国际站' }];
+let status = { connected: false };
+let catalog = null;
+let busy = false, controller = null, timer = null, setupAutoOpened = false;
+
+const cid = (() => {
+  let v = sessionStorage.getItem('cid');
+  if (!v) { v = 'c_' + Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('cid', v); }
+  return v;
+})();
+
+/* ----------------------------- rendering ----------------------------- */
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+/** Deliberately small: fenced code, inline code, bold, italics. */
+function fmt(md) {
+  const blocks = [];
+  let s = md.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push('<pre><code>' + esc(code.replace(/\n$/, '')) + '</code></pre>');
+    return '\u0000' + (blocks.length - 1) + '\u0000';
+  });
+  s = esc(s)
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[+i]);
+}
+
+function addRow(who, html, cls) {
+  emptyEl.hidden = true;
+  const row = document.createElement('div');
+  row.className = 'row ' + who;
+  row.innerHTML = '<div class="avatar">' + (who === 'me' ? '我' : 'AI') + '</div>' +
+    '<div class="bubble' + (cls ? ' ' + cls : '') + '"></div>';
+  const bubble = row.querySelector('.bubble');
+  // Mount first — the streaming bubble is created empty and filled in place.
+  logEl.appendChild(row);
+  if (html !== null) bubble.innerHTML = html;
+  return { row, bubble };
+}
+
+function fmtSize(n) {
+  const v = Number(n) || 0;
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let x = v, i = 0;
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i += 1; }
+  return (i ? x.toFixed(1) : String(x)) + ' ' + units[i];
+}
+
+/**
+ * Files the agent produced during this turn. The download link goes through the
+ * local service on purpose: upstream hands out a signed URL whose storage host
+ * sends no CORS headers, so the browser could never fetch it directly.
+ */
+function renderFiles(files, saved) {
+  if (!files || !files.length) return;
+  const where = new Map((saved || []).map((s) => [s.id, s.rel || s.path || '']));
+  const dirs = [...new Set([...where.values()]
+    .map((p) => String(p).split('/').slice(0, -1).join('/'))
+    .filter(Boolean))];
+
+  const head = files.length === 1 ? '这一轮产生了 1 个文件' : `这一轮产生了 ${files.length} 个文件`;
+  const tail = dirs.length ? ` · 已自动存进 <code>${esc(dirs[0])}/</code>` : '';
+
+  const rows = files.map((f) => {
+    const name = f.filename || f.id;
+    const href = apiPath('/api/files/download') + '?id=' + encodeURIComponent(f.id);
+    const at = where.get(f.id);
+    return '<div class="file">' +
+      '<span class="fname" title="' + esc(f.mime || name) + '">' + esc(name) + '</span>' +
+      '<span class="fmeta">' + esc(fmtSize(f.size)) + (at ? ' · ' + esc(at) : '') + '</span>' +
+      '<a class="dl" href="' + esc(href) + '" download="' + esc(name) + '">下载</a>' +
+      '</div>';
+  }).join('');
+  addRow('bot', '<div class="files"><div class="files-h">' + head + tail + '</div>' + rows + '</div>');
+  scrollDown();
+}
+
+/* ------------------------------ attachments ------------------------------ */
+
+// Upstream accepts only "text" and "image" content blocks. An image is uploaded
+// and referenced by id; a text file has no reference mechanism at all, so its
+// contents ride along inside a text block. Anything else simply cannot be sent.
+const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
+const TEXT_RE = /\.(txt|md|markdown|csv|tsv|json|ya?ml|toml|ini|cfg|conf|log|py|js|mjs|cjs|ts|jsx|tsx|java|go|rb|rs|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|sql|html?|css|scss|xml|vue|swift|kt|scala|r|pl|lua|dart|gradle|properties|env|gitignore|dockerfile|diff|patch)$/i;
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_FILES = 5;
+
+let pending = [];
+const attachEl = $('attach'), pickerEl = $('picker'), fileBtn = $('file');
+
+/** Only what the service will accept, and only once it is ready. */
+function wireAttachments() {
+  return pending.filter((a) => a.ready).map((a) => ({
+    kind: a.kind,
+    name: a.name,
+    fileId: a.fileId || undefined,
+    text: a.text || undefined,
+  }));
+}
+
+function paintAttach() {
+  attachEl.hidden = pending.length === 0;
+  attachEl.textContent = '';
+  pending.forEach((a, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (a.error ? ' bad' : '') + (a.ready ? '' : ' busy');
+    if (a.error) chip.title = a.error;
+
+    const name = document.createElement('span');
+    name.className = 'cn';
+    name.textContent = a.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'cs';
+    meta.textContent = a.error ? '失败' : (a.ready ? (a.kind === 'image' ? '图片' : '正文') : '处理中…');
+
+    const x = document.createElement('span');
+    x.className = 'cx';
+    x.textContent = '×';
+    x.title = '移除';
+    x.addEventListener('click', () => { pending.splice(i, 1); paintAttach(); });
+
+    chip.append(name, meta, x);
+    attachEl.appendChild(chip);
+  });
+}
+
+async function uploadOne(file, item) {
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const r = await fetch(apiPath('/api/upload'), { method: 'POST', body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.file) {
+      item.error = j.message || ('上传失败（HTTP ' + r.status + '）');
+      paintAttach();
+      return;
+    }
+    item.fileId = j.file.id;
+    item.ready = true;
+  } catch (e) {
+    item.error = '连不上本地服务。';
+  }
+  paintAttach();
+}
+
+async function addFiles(fileList) {
+  for (const f of Array.from(fileList || [])) {
+    if (pending.length >= MAX_FILES) break;
+    const item = { name: f.name, size: f.size, kind: '', ready: false, error: '', text: '', fileId: '' };
+    pending.push(item);
+    paintAttach();
+
+    if (IMAGE_RE.test(f.name) || /^image\//i.test(f.type)) {
+      if (f.size > MAX_IMAGE_BYTES) { item.error = '图片太大（上限 20 MB）'; paintAttach(); continue; }
+      item.kind = 'image';
+      await uploadOne(f, item);
+    } else if (TEXT_RE.test(f.name) || /^text\//i.test(f.type)) {
+      if (f.size > MAX_TEXT_BYTES) { item.error = '文本太大（上限 2 MB）'; paintAttach(); continue; }
+      item.kind = 'text';
+      try {
+        item.text = await f.text();
+        item.ready = true;
+      } catch (e) { item.error = '读不出来：' + e.message; }
+      paintAttach();
+    } else {
+      item.error = '只能发图片或文本文件 —— 上游不接受其它类型';
+      paintAttach();
+    }
+  }
+}
+
+function clearAttach() { pending = []; paintAttach(); }
+
+fileBtn.addEventListener('click', () => pickerEl.click());
+pickerEl.addEventListener('change', () => { addFiles(pickerEl.files); pickerEl.value = ''; });
+
+// Dropping a file on the chat is the other obvious way to attach one.
+['dragenter', 'dragover'].forEach((ev) => chatEl.addEventListener(ev, (e) => {
+  e.preventDefault();
+  chatEl.classList.add('drop');
+}));
+['dragleave', 'dragend'].forEach((ev) => chatEl.addEventListener(ev, () => chatEl.classList.remove('drop')));
+chatEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  chatEl.classList.remove('drop');
+  addFiles(e.dataTransfer && e.dataTransfer.files);
+});
+
+function clearLog() {
+  logEl.querySelectorAll('.row').forEach((n) => n.remove());
+  emptyEl.hidden = false;
+}
+
+const scrollDown = () => { logEl.scrollTop = logEl.scrollHeight; };
+
+function setStatus(kind, text) {
+  statusEl.className = kind || '';
+  statusEl.innerHTML = kind === 'busy'
+    ? '<span class="spin"></span><span>' + esc(text) + '</span>'
+    : (text ? esc(text) : '');
+}
+
+/* ------------------------- small catalog lookups ------------------------- */
+
+const TOOL_LABELS = {
+  Bash: '运行命令', Read: '读文件', Write: '写文件', Edit: '改文件',
+  Glob: '按名找文件', Grep: '搜内容', WebFetch: '抓网页', WebSearch: '联网搜索',
+  ImageSearch: '搜图', ImageGen: '生成图片', DeliverArtifacts: '交付产物',
+};
+const NET_LABELS = {
+  unrestricted: '不受限', limited: '受限', allowed_hosts: '仅允许指定主机',
+};
+const NET_HINTS = {
+  unrestricted: '沙箱可以访问任意主机——文档里用的就是这个。',
+  limited: '受限网络，由平台决定可访问范围。',
+  allowed_hosts: '只允许访问你列出的主机。',
+};
+const toolLabel = (t) => TOOL_LABELS[t] || t;
+const netLabel = (n) => NET_LABELS[n] || n;
+
+/* ---------------------------- gate / status ---------------------------- */
+
+function fillRegions() {
+  if (regionEl.options.length) return;
+  for (const r of regions) {
+    const o = document.createElement('option');
+    o.value = r.id; o.textContent = r.label;
+    regionEl.appendChild(o);
+  }
+}
+
+function showGateError(msg) {
+  gateErr.textContent = msg;
+  gateErr.hidden = !msg;
+}
+
+function fillSelect(sel, items, selected, labelOf) {
+  sel.innerHTML = '';
+  for (const it of items) {
+    const o = document.createElement('option');
+    o.value = it.id;
+    o.textContent = labelOf(it);
+    if (it.id === selected) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.hidden = items.length < 2;
+}
+
+function applyCeiling(j) {
+  if (j && j.idleTimeoutMs) clientCeilingMs = Number(j.idleTimeoutMs) + CLIENT_MARGIN_MS;
+}
+
+function paintNotice(el, text, kind, actions) {
+  el.className = 'note' + (kind ? ' ' + kind : '');
+  el.textContent = '';
+  if (text) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    el.appendChild(span);
+  }
+  if (actions && actions.length) {
+    const box = document.createElement('div');
+    box.className = 'acts';
+    for (const a of actions) {
+      const b = document.createElement('button');
+      b.className = 'tiny' + (a.kind ? ' ' + a.kind : '');
+      b.textContent = a.label;
+      b.addEventListener('click', a.run);
+      box.appendChild(b);
+    }
+    el.appendChild(box);
+  }
+  el.hidden = !text && !(actions && actions.length);
+}
+
+/** Single place that decides what the user is allowed to see. */
+function applyStatus(s) {
+  status = s;
+  applyCeiling(s);
+  regions = (s.regions && s.regions.length) ? s.regions : regions;
+  fillRegions();
+
+  const connected = Boolean(s.connected);
+  const ready = Boolean(s.ready);
+
+  dotEl.className = 'dot ' + (!connected ? '' : ready ? 'ok' : 'warn');
+  gateEl.hidden = connected;
+  chatEl.hidden = !connected;
+
+  tokBadge.hidden = !connected;
+  setupBtn.hidden = !connected;
+  newBtn.hidden = !connected;
+  disconnectBtn.hidden = !connected;
+  agentSel.hidden = true;
+  envSel.hidden = true;
+
+  if (!connected) {
+    metaEl.textContent = '';
+    $('hint').textContent = '';
+    closeSetup();
+    return;
+  }
+
+  tokBadge.innerHTML = '令牌 <b>' + esc(s.tokenHint || '') + '</b> · ' +
+    esc((regions.find((r) => r.id === s.region) || {}).label || s.region || '') +
+    (s.source === 'env' ? ' · 来自环境变量' : s.source === 'file' ? ' · 已记住' : '');
+
+  fillSelect(agentSel, s.agents || [], s.agent, (a) => a.name || a.id);
+  fillSelect(envSel, s.environments || [], s.environment, (e) => e.name || e.id);
+  renderLists(s);
+  applyReadiness(s);
+
+  // A brand-new account has nothing to talk to: send the user straight to the
+  // form that fixes that, once, instead of letting them hit a wall later.
+  if (s.needsSetup && !setupAutoOpened) {
+    setupAutoOpened = true;
+    openSetup('agent');
+    paintNotice(setupNote,
+      '这个账号下还缺 ' + missingText(s) + '。在下面填好创建即可，不用再去控制台。', 'warn');
+  }
+  if (!s.needsSetup) setupAutoOpened = false;
+}
+
+function missingText(s) {
+  const noAgent = !(s.agents || []).length;
+  const noEnv = !(s.environments || []).length;
+  if (noAgent && noEnv) return 'Agent 和运行环境';
+  return noAgent ? 'Agent' : '运行环境';
+}
+
+function applyReadiness(s) {
+  const ready = Boolean(s.ready);
+  qEl.disabled = !ready;
+  sendBtn.disabled = !ready;
+  $('emptySetup').hidden = ready;
+  $('emptyTitle').textContent = ready ? '已连接' : '还差一步';
+  $('emptyText').textContent = ready
+    ? '在下面输入你的问题，按 Enter 发送（Shift + Enter 换行）。'
+    : '需要先有一个 Agent 和一个运行环境，才能开始对话。';
+  $('hint').textContent = ready
+    ? '令牌由本机服务保管，页面本身接触不到它。'
+    : '令牌由本机服务保管；创建的资源属于你的 Qoder 账号。';
+  if (!ready) setStatus('warn', '还缺 Agent / 运行环境，点「配置」创建。');
+  else if (!statusEl.textContent) setStatus('', '已连接，可以开始对话。');
+}
+
+/* --------------------------- resource lists --------------------------- */
+
+function itemEl({ id, name, desc, onPick, picked, onDelete }) {
+  const box = document.createElement('div');
+  box.className = 'item' + (picked ? ' on' : '');
+  box.innerHTML = '<div class="grow"><div class="nm"></div><div class="ds"></div></div>' +
+    '<div class="acts"></div>';
+  box.querySelector('.nm').textContent = name;
+  box.querySelector('.ds').textContent = desc || '';
+  const acts = box.querySelector('.acts');
+  if (onPick) {
+    const b = document.createElement('button');
+    b.className = 'tiny';
+    b.textContent = picked ? '使用中' : '选用';
+    b.disabled = Boolean(picked);
+    b.addEventListener('click', onPick);
+    acts.appendChild(b);
+  }
+  if (onDelete) {
+    const d = document.createElement('button');
+    d.className = 'tiny danger';
+    d.textContent = '删除';
+    d.addEventListener('click', onDelete);
+    acts.appendChild(d);
+  }
+  return box;
+}
+
+function emptyListEl(text) {
+  const d = document.createElement('div');
+  d.className = 'emptyList';
+  d.textContent = text;
+  return d;
+}
+
+function renderLists(s) {
+  const agents = s.agents || [], envs = s.environments || [];
+
+  $('agCount').textContent = agents.length ? '(' + agents.length + ')' : '';
+  const agList = $('agList');
+  agList.innerHTML = '';
+  if (!agents.length) agList.appendChild(emptyListEl('还没有 Agent。'));
+  else for (const a of agents) {
+    const bits = [a.model, a.effort && ('档位 ' + a.effort), (a.tools || []).length + ' 个工具']
+      .filter(Boolean).join(' · ');
+    agList.appendChild(itemEl({
+      id: a.id, name: a.name, desc: bits + (a.description ? ' · ' + a.description : ''),
+      picked: a.id === s.agent,
+      onPick: () => pick({ agent: a.id }, '已切换到 Agent：' + a.name),
+      onDelete: () => removeResource('agents', a, 'Agent'),
+    }));
+  }
+
+  $('envCount').textContent = envs.length ? '(' + envs.length + ')' : '';
+  const envList = $('envList');
+  envList.innerHTML = '';
+  if (!envs.length) envList.appendChild(emptyListEl('还没有运行环境。'));
+  else for (const e of envs) {
+    const bits = [netLabel(e.networking)].filter(Boolean).join(' · ');
+    envList.appendChild(itemEl({
+      id: e.id, name: e.name, desc: bits + (e.description ? ' · ' + e.description : ''),
+      picked: e.id === s.environment,
+      onPick: () => pick({ environment: e.id }, '已切换到运行环境：' + e.name),
+      onDelete: () => removeResource('environments', e, '运行环境'),
+    }));
+  }
+}
+
+async function pick(body, okText) {
+  try {
+    const r = await fetch(apiPath('/api/select'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    applyStatus(j);
+    clearLog();
+    setStatus('', okText + '，会话已重置。');
+  } catch { setStatus('err', '连不上本地服务。'); }
+}
+
+async function removeResource(kind, item, label) {
+  if (!confirm('确定删除' + label + '「' + item.name + '」吗？这会在你的 Qoder 账号里真的删掉它，无法撤销。')) return;
+  const notice = kind === 'agents' ? $('agNotice') : $('envNotice');
+  paintNotice(notice, '');
+  try {
+    const r = await fetch(apiPath('/api/' + kind) + '?id=' + encodeURIComponent(item.id), { method: 'DELETE' });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409 && j.canArchive) {
+      const head = j.sessions > 0
+        ? '删不掉：还有 ' + j.sessions + ' 个对话会话引用着它，上游不允许删除仍被引用的运行环境。'
+        : '删不掉：上游不允许删除仍被会话引用的运行环境。';
+      paintNotice(notice,
+        head + '\n可以改为「归档」——它不再出现在列表里，记录会保留。\n上游原文：' + (j.message || ''),
+        'warn',
+        [{ label: '改为归档', kind: 'primary', run: () => archiveResource(kind, item, label) }]);
+      return;
+    }
+    if (!r.ok) { paintNotice(notice, j.message || ('删除失败（HTTP ' + r.status + '）'), 'bad'); return; }
+    applyStatus(j);
+    paintNotice(notice, '已删除' + label + '「' + item.name + '」。', 'good');
+    setStatus('', '已删除' + label + '「' + item.name + '」。');
+  } catch { setStatus('err', '连不上本地服务。'); }
+}
+
+async function archiveResource(kind, item, label) {
+  const notice = kind === 'agents' ? $('agNotice') : $('envNotice');
+  paintNotice(notice, '');
+  try {
+    const r = await fetch(apiPath('/api/' + kind + '/archive'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { paintNotice(notice, j.message || ('归档失败（HTTP ' + r.status + '）'), 'bad'); return; }
+    applyStatus(j);
+    paintNotice(notice, '已归档' + label + '「' + item.name + '」。它不再出现在列表里，记录仍保留。', 'good');
+    setStatus('', '已归档' + label + '「' + item.name + '」。');
+  } catch { paintNotice(notice, '连不上本地服务。', 'bad'); }
+}
+
+/* ------------------------------- setup ------------------------------- */
+
+function openSetup(tab) {
+  setupEl.hidden = false;
+  selectTab(tab || 'agent');
+  loadCatalog();
+}
+
+function closeSetup() { setupEl.hidden = true; }
+
+function selectTab(which) {
+  const agentOn = which !== 'env';
+  $('tabAgent').classList.toggle('active', agentOn);
+  $('tabEnv').classList.toggle('active', !agentOn);
+  $('paneAgent').hidden = !agentOn;
+  $('paneEnv').hidden = agentOn;
+}
+
+async function loadCatalog() {
+  if (catalog) return catalog;
+  try {
+    const r = await fetch(apiPath('/api/catalog'));
+    const j = await r.json();
+    if (!r.ok) { paintNotice($('agNotice'), j.message || '拿不到模型清单。', 'bad'); return null; }
+    catalog = j;
+  } catch {
+    paintNotice($('agNotice'), '连不上本地服务。', 'bad');
+    return null;
+  }
+  fillModelSelect();
+  fillToolGrid();
+  fillNetworkSelect('unrestricted');
+  if (!$('agSystem').value) $('agSystem').value = catalog.defaultSystem || '';
+  return catalog;
+}
+
+function fillModelSelect() {
+  const sel = $('agModel');
+  sel.innerHTML = '';
+  for (const m of catalog.models) {
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.name + (m.factor ? '  ·  倍率 ' + m.factor : '  ·  免费') + (m.isNew ? '  ·  新' : '');
+    sel.appendChild(o);
+  }
+  sel.addEventListener('change', syncModelFields);
+  syncModelFields();
+}
+
+function currentModel() {
+  return (catalog.models || []).find((m) => m.id === $('agModel').value) || null;
+}
+
+function syncModelFields() {
+  const m = currentModel();
+  const meta = $('agModelMeta');
+  if (!m) { meta.textContent = ''; return; }
+
+  // effort — only models that advertise levels get the picker
+  const eff = $('agEffort');
+  eff.innerHTML = '';
+  for (const e of m.efforts) {
+    const o = document.createElement('option');
+    o.value = e; o.textContent = e;
+    eff.appendChild(o);
+  }
+  if (m.defaultEffort) eff.value = m.defaultEffort;
+  $('agEffortWrap').hidden = !m.efforts.length;
+
+  // context window — only values the model actually offers
+  const ctx = $('agCtx');
+  ctx.innerHTML = '';
+  for (const c of m.contexts) {
+    const o = document.createElement('option');
+    o.value = String(c); o.textContent = (c / 1000) + 'k';
+    ctx.appendChild(o);
+  }
+  $('agCtxWrap').hidden = !m.contexts.length;
+
+  const bits = [];
+  if (m.maxInput) bits.push('单次最多输入 ' + m.maxInput.toLocaleString('en-US') + ' tokens');
+  if (m.isVl) bits.push('支持图片');
+  bits.push('id ' + m.id);
+  meta.textContent = bits.join(' · ');
+}
+
+function fillToolGrid() {
+  const box = $('agTools');
+  box.innerHTML = '';
+  for (const t of catalog.toolset.tools) {
+    const lab = document.createElement('label');
+    lab.className = 'tool';
+    lab.innerHTML = '<input type="checkbox" value="' + esc(t) + '" />' +
+      '<span>' + esc(t) + '</span><span class="t">' + esc(toolLabel(t)) + '</span>';
+    lab.querySelector('input').addEventListener('change', updateToolCount);
+    box.appendChild(lab);
+  }
+  box.querySelectorAll('input').forEach((i) => { i.checked = true; });
+  updateToolCount();
+}
+
+function updateToolCount() {
+  const all = $('agTools').querySelectorAll('input');
+  const on = $('agTools').querySelectorAll('input:checked').length;
+  $('agToolCount').textContent = '(' + on + '/' + all.length + ')';
+}
+
+function fillNetworkSelect(selected) {
+  const sel = $('envNet');
+  sel.innerHTML = '';
+  for (const n of catalog.networking) {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = netLabel(n);
+    sel.appendChild(o);
+  }
+  sel.value = selected || 'unrestricted';
+  sel.addEventListener('change', syncNetworkFields);
+  syncNetworkFields();
+}
+
+function syncNetworkFields() {
+  const v = $('envNet').value;
+  $('envHostsWrap').hidden = v !== 'allowed_hosts';
+  $('envNetMeta').textContent = NET_HINTS[v] || '';
+}
+
+function selectedTools() {
+  return Array.from($('agTools').querySelectorAll('input:checked')).map((i) => i.value);
+}
+
+function presetAgentForm() {
+  if (!catalog) return;
+  $('agName').value = 'test';
+  $('agDesc').value = '最简配置：一个系统提示词 + 基础工具集。先跑通第一个 API 调用，之后再按需增加复杂度。';
+  $('agSystem').value = catalog.defaultSystem || '';
+  $('agModel').value = 'q37fmodel';
+  if ($('agModel').value !== 'q37fmodel') $('agModel').value = catalog.models[0].id;
+  syncModelFields();
+  const ctx = $('agCtx');
+  if (!ctx.hidden && ctx.querySelector('option[value="200000"]')) ctx.value = '200000';
+  $('agTools').querySelectorAll('input').forEach((i) => { i.checked = true; });
+  updateToolCount();
+}
+
+function presetEnvForm() {
+  $('envName').value = 'agent testing';
+  if (catalog) fillNetworkSelect('unrestricted');
+}
+
+async function createAgent() {
+  const notice = $('agNotice');
+  paintNotice(notice, '');
+  const body = {
+    name: $('agName').value.trim(),
+    description: $('agDesc').value.trim(),
+    system: $('agSystem').value.trim(),
+    model: $('agModel').value,
+    effort: $('agEffortWrap').hidden ? '' : $('agEffort').value,
+    contextWindow: $('agCtxWrap').hidden ? 0 : Number($('agCtx').value),
+    tools: selectedTools(),
+  };
+  if (!body.name) { paintNotice(notice, '请先给 Agent 起个名字。', 'bad'); $('agName').focus(); return; }
+
+  const btn = $('agCreate');
+  btn.disabled = true; btn.innerHTML = '<span class="spin-inline"></span>创建中…';
+  try {
+    const r = await fetch(apiPath('/api/agents'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { paintNotice(notice, j.message || ('创建失败（HTTP ' + r.status + '）'), 'bad'); return; }
+    applyStatus(j);
+    paintNotice(notice, '已创建 Agent「' + body.name + '」，并自动选为当前 Agent。', 'good');
+    $('agName').value = ''; $('agDesc').value = '';
+    setStatus('', '已创建 Agent「' + body.name + '」。');
+  } catch {
+    paintNotice(notice, '连不上本地服务。', 'bad');
+  } finally {
+    btn.disabled = false; btn.textContent = '创建 Agent';
+  }
+}
+
+async function createEnv() {
+  const notice = $('envNotice');
+  paintNotice(notice, '');
+  const body = {
+    name: $('envName').value.trim(),
+    networking: $('envNet').value,
+    allowedHosts: $('envHosts').value.split('\n').map((s) => s.trim()).filter(Boolean),
+  };
+  if (!body.name) { paintNotice(notice, '请先给运行环境起个名字。', 'bad'); $('envName').focus(); return; }
+
+  const btn = $('envCreate');
+  btn.disabled = true; btn.innerHTML = '<span class="spin-inline"></span>创建中…';
+  try {
+    const r = await fetch(apiPath('/api/environments'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { paintNotice(notice, j.message || ('创建失败（HTTP ' + r.status + '）'), 'bad'); return; }
+    applyStatus(j);
+    paintNotice(notice, '已创建运行环境「' + body.name + '」，并自动选为当前环境。', 'good');
+    $('envName').value = '';
+    setStatus('', '已创建运行环境「' + body.name + '」。');
+  } catch {
+    paintNotice(notice, '连不上本地服务。', 'bad');
+  } finally {
+    btn.disabled = false; btn.textContent = '创建运行环境';
+  }
+}
+
+/* --------------------------- SSE from /api/ask --------------------------- */
+
+function parseFrames(buf, onEvent) {
+  let i;
+  while ((i = buf.indexOf('\n\n')) !== -1) {
+    const raw = buf.slice(0, i);
+    buf = buf.slice(i + 2);
+    let name = '';
+    const data = [];
+    for (const line of raw.split('\n')) {
+      if (!line || line.startsWith(':')) continue;
+      if (line.startsWith('event:')) name = line.slice(6).trim();
+      else if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+    }
+    if (!name || !data.length) continue;
+    let payload = {};
+    try { payload = JSON.parse(data.join('\n')); } catch {}
+    onEvent(name, payload);
+  }
+  return buf;
+}
+
+async function ask(question) {
+  const { bubble } = addRow('bot', null);
+  let text = '', lastNote = '', errored = false, needConnect = false, needSetup = false, timedOut = false;
+
+  const paint = () => { bubble.innerHTML = text ? fmt(text) : '<span style="color:var(--muted)">…</span>'; };
+  paint();
+
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    const secs = ((Date.now() - t0) / 1000).toFixed(0);
+    metaEl.textContent = secs + 's';
+    if (!lastNote) setStatus('busy', '思考中… ' + secs + 's');
+  }, 250);
+
+  const timeout = setTimeout(() => {
+    if (controller && !errored) {
+      errored = true;
+      timedOut = true;
+      setStatus('err', '本地服务超过 ' + Math.round(clientCeilingMs / 1000) + ' 秒没有回应，已中断。');
+      try { controller.abort(); } catch {}
+    }
+  }, clientCeilingMs);
+
+  controller = new AbortController();
+  try {
+    const res = await fetch(apiPath('/api/ask'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cid, q: question, attachments: wireAttachments() }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      let msg = '本地服务返回了 HTTP ' + res.status + '。';
+      try {
+        const j = await res.json();
+        if (j && j.message) msg = j.message;
+        if (j && j.code === 'auth') needConnect = true;
+        if (j && j.code === 'setup') needSetup = true;
+      } catch {}
+      throw new Error(msg);
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      buf = parseFrames(buf, (name, p) => {
+        if (name === 'ready') { setStatus('busy', '已连接，等待模型…'); return; }
+        if (name === 'note') { lastNote = p.text || ''; setStatus('busy', lastNote); return; }
+        if (name === 'delta') { text += p.text || ''; paint(); scrollDown(); return; }
+        if (name === 'files') { renderFiles(p.files, p.saved); return; }
+        if (name === 'error') {
+          errored = true;
+          if (p.code === 'auth') needConnect = true;
+          if (p.code === 'setup') needSetup = true;
+          addRow('bot', '<strong>' + esc(p.message || '出错了') + '</strong>' +
+            (p.reason ? '\n<code>' + esc(p.code + ' / ' + p.reason) + '</code>' : ''), 'err');
+          setStatus('err', p.message || '出错了');
+          return;
+        }
+        if (name === 'done' && !errored && !text) {
+          errored = true;
+          bubble.classList.add('err');
+          bubble.innerHTML = '<strong>没有收到任何回答。</strong>';
+          setStatus('err', '这一轮没有产生任何回答。');
+        }
+      });
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      if (timedOut) {
+        bubble.classList.add('err');
+        bubble.innerHTML = '<strong>等待超时，已中断。</strong>\n' +
+          '<em>上游一直没有给出任何进展。</em>';
+      } else if (!text) {
+        bubble.innerHTML = '<em style="color:var(--muted)">已停止。</em>';
+      } else {
+        text += '\n\n_（已停止）_';
+        paint();
+      }
+      setStatus('', timedOut ? '已中断（等待超时）。' : '已停止。');
+    } else {
+      errored = true;
+      const msg = /Failed to fetch|NetworkError|load failed/i.test(err.message)
+        ? '连不上本地服务。请确认服务已在运行（默认 http://127.0.0.1:8787）。'
+        : err.message;
+      addRow('bot', '<strong>' + esc(msg) + '</strong>', 'err');
+      setStatus('err', msg);
+    }
+  } finally {
+    clearInterval(tick);
+    clearTimeout(timer);
+    clearTimeout(timeout);
+    controller = null;
+    metaEl.textContent = '';
+    if (!errored && text) setStatus('', '完成 · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    // A rejected / rotated token should send the user straight back to the gate.
+    if (needConnect) refresh();
+    // Not configured yet? Show the form instead of leaving them stuck.
+    if (needSetup) openSetup('agent');
+  }
+}
+
+/* ------------------------------- drivers ------------------------------- */
+
+async function send() {
+  const question = qEl.value.trim();
+  const atts = wireAttachments();
+  if ((!question && !atts.length) || busy) return;
+  if (pending.some((a) => !a.ready && !a.error)) {
+    setStatus('warn', '附件还在处理中，请稍等一下再发送。');
+    return;
+  }
+  const names = atts.map((a) => a.name);
+  qEl.value = ''; autosize();
+  addRow('me', esc(question) + (names.length
+    ? '<div class="sent-files">附件：' + esc(names.join('、')) + '</div>'
+    : ''));
+  scrollDown();
+  setBusy(true);
+  await ask(question);
+  setBusy(false);
+  clearAttach();
+  qEl.focus();
+}
+
+function setBusy(v) {
+  busy = v;
+  sendBtn.disabled = v || !status.ready;
+  qEl.disabled = v || !status.ready;
+  stopBtn.hidden = !v;
+}
+
+function autosize() {
+  qEl.style.height = 'auto';
+  qEl.style.height = Math.min(qEl.scrollHeight, 190) + 'px';
+}
+
+async function refresh() {
+  try {
+    const r = await fetch(apiPath('/api/health'));
+    const j = await r.json();
+    applyStatus(j);
+    return j;
+  } catch {
+    dotEl.className = 'dot bad';
+    gateEl.hidden = false;
+    chatEl.hidden = true;
+    $('hint').textContent = '启动方式：在项目目录执行 node server.js，然后刷新本页。';
+    showGateError('连不上本地服务。请先在项目目录运行 node server.js。');
+    return null;
+  }
+}
+
+async function doConnect() {
+  const pat = patEl.value.trim();
+  if (!pat) { showGateError('请先填入令牌。'); patEl.focus(); return; }
+  if (!pat.startsWith('pt-')) showGateError('注意：PAT 通常以 pt- 开头，仍会尝试连接。');
+  else showGateError('');
+
+  connectBtn.disabled = true;
+  connectBtn.innerHTML = '<span class="spin-inline"></span>连接中…';
+  try {
+    const r = await fetch(apiPath('/api/connect'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pat, region: regionEl.value, remember: rememberEl.checked }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      showGateError(j.message || ('连接失败（HTTP ' + r.status + '）'));
+      return;
+    }
+    patEl.value = '';                       // don't keep it in the DOM
+    showGateError('');
+    setupAutoOpened = false;                // let a fresh account get re-prompted
+    catalog = null;                         // catalogue is per token
+    applyStatus(Object.assign({ connected: true, source: rememberEl.checked ? 'file' : '' }, j));
+    if (!j.needsSetup) {
+      setStatus('', '已连接，可以开始对话。');
+      qEl.focus();
+    }
+  } catch (err) {
+    showGateError('连不上本地服务：请确认 node server.js 正在运行。');
+  } finally {
+    connectBtn.disabled = false;
+    connectBtn.textContent = '连接';
+  }
+}
+
+/* ------------------------------- wiring ------------------------------- */
+
+connectBtn.addEventListener('click', doConnect);
+patEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doConnect(); } });
+revealBtn.addEventListener('click', () => {
+  const hidden = patEl.type === 'password';
+  patEl.type = hidden ? 'text' : 'password';
+  revealBtn.textContent = hidden ? '隐藏' : '显示';
+});
+regionEl.addEventListener('change', () => showGateError('区域已改动，请重新连接。'));
+
+agentSel.addEventListener('change', () => {
+  fetch(apiPath('/api/select'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent: agentSel.value }),
+  }).then((r) => r.json()).then((j) => { applyStatus(j); clearLog(); setStatus('', '已切换 Agent，会话已重置。'); }).catch(() => {});
+});
+
+envSel.addEventListener('change', () => {
+  fetch(apiPath('/api/select'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ environment: envSel.value }),
+  }).then((r) => r.json()).then((j) => { applyStatus(j); clearLog(); setStatus('', '已切换运行环境，会话已重置。'); }).catch(() => {});
+});
+
+disconnectBtn.addEventListener('click', async () => {
+  if (busy) return;
+  await fetch(apiPath('/api/disconnect'), { method: 'POST' }).catch(() => {});
+  clearLog();
+  setStatus('', '');
+  catalog = null;
+  setupAutoOpened = false;
+  await refresh();
+});
+
+newBtn.addEventListener('click', async () => {
+  if (busy) return;
+  await fetch(apiPath('/api/reset'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cid }),
+  }).catch(() => {});
+  clearLog();
+  setStatus('', '已开始一段新的会话。');
+  qEl.focus();
+});
+
+setupBtn.addEventListener('click', () => openSetup('agent'));
+$('emptySetup').addEventListener('click', () => openSetup('agent'));
+$('setupClose').addEventListener('click', closeSetup);
+setupEl.addEventListener('click', (e) => { if (e.target === setupEl) closeSetup(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !setupEl.hidden) closeSetup(); });
+
+$('tabAgent').addEventListener('click', () => selectTab('agent'));
+$('tabEnv').addEventListener('click', () => selectTab('env'));
+
+$('agCreate').addEventListener('click', createAgent);
+$('agPreset').addEventListener('click', presetAgentForm);
+$('agAll').addEventListener('click', () => {
+  const boxes = Array.from($('agTools').querySelectorAll('input'));
+  const allOn = boxes.every((b) => b.checked);
+  boxes.forEach((b) => { b.checked = !allOn; });
+  updateToolCount();
+});
+$('envCreate').addEventListener('click', createEnv);
+$('envPreset').addEventListener('click', presetEnvForm);
+
+sendBtn.addEventListener('click', send);
+stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
+qEl.addEventListener('input', autosize);
+qEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+
+autosize();
+refresh().then((j) => { if (!j || !j.connected) patEl.focus(); else if (j.ready) qEl.focus(); });
+</script>
+</body>
+</html>

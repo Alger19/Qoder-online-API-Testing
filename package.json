@@ -1,0 +1,12 @@
+{
+  "name": "qoder-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本机网页 + Qoder Cloud Agents 对话 demo（零依赖，只用 Node 标准库）",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
